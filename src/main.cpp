@@ -11,10 +11,8 @@
 #define write_api_key "V5HXBBRF8G4HKIDI"
 WiFiClient wifi_client;
 
-// #define wifi_ssid "Orange_Gosc_7AD0"
-// #define wifi_password "dupadupa"
-#define wifi_ssid "zetor"
-#define wifi_password "ursus360"
+#define wifi_ssid "Orange_Gosc_7AD0"
+#define wifi_password "dupadupa"
 #define wifi_timeout 60000
 
 #define SEALEVELPRESSURE_HPA (1013.25)
@@ -158,27 +156,27 @@ void loop() {
         ESP.restart();
     }
     
-    if(WiFi.localIP().toString() == "192.168.10.201") {
+    if(WiFi.localIP().toString() == "192.168.144.3") {
         digitalWrite(LED_BUILTIN, HIGH);
         
         unsigned long upload_current_millis = millis();
 
-        // rainMeter();
+        rainMeter();
         // delay(10);
 
         if(millis() - upload_previousMillis > 15000)
         {
             getBMEvalues();
             printBMEvalues();
-            // ThingSpeak.setField(1, temperature);
-            // ThingSpeak.setField(2, pressure);
-            // ThingSpeak.setField(3, humidity);
-            // ThingSpeak.setField(4, rainfall_value);
+            ThingSpeak.setField(1, temperature);
+            ThingSpeak.setField(2, pressure);
+            ThingSpeak.setField(3, humidity);
+            ThingSpeak.setField(4, rainfall_value);
             
-            // ThingSpeak.setField(5, rain_indicator);
+            ThingSpeak.setField(5, rain_indicator);
             
-            // ThingSpeak.writeFields(channel_id,write_api_key);
-            // Serial.println("SENT DATA TO CLOUD");
+            ThingSpeak.writeFields(channel_id,write_api_key);
+            Serial.println("SENT DATA TO CLOUD");
 
             upload_previousMillis = millis();
         }
