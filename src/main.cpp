@@ -205,6 +205,6 @@ void loop() {
 
             upload_previousMillis = millis();
         }
-    }z
+    }
 }
 
