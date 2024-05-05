@@ -17,7 +17,7 @@
 #define write_api_key "V5HXBBRF8G4HKIDI"
 WiFiClient wifi_client;
 
-AsyncWebServer server(80);
+AsyncWebServer web_server(80);
 
 // #define wifi_ssid "Orange_Gosc_7AD0"
 // #define wifi_password "dupadupa"
@@ -51,7 +51,7 @@ float rain_analog;
 bool rain = false;
 
 unsigned long last_upload_time = 0;
-unsigned long upload_interval = 100;
+unsigned long upload_interval = 15000;
 String ip_address = "192.168.10.201";
 float offset = 0.0;
 
@@ -171,9 +171,8 @@ void getMCPvalues()
 void getYLvalues(){
     rain_analog = analogRead(yl_analog_pin);
     Serial.println(rain_analog);
-    rain_analog < 2200 ? rain = true : rain = false; 
+    rain_analog < 850 ? rain = true : rain = false; 
 }
-
 
 void MQTTreconnect() {
     // Loop until we're reconnected
@@ -219,7 +218,6 @@ void send_data_to_cloud_MQTT()
     else Serial.println("Error publishing");
 }
 
-
 void setup() {
     Serial.begin(115200);
     pinMode(LED_BUILTIN, OUTPUT);
@@ -227,6 +225,10 @@ void setup() {
     MQTT_client.setServer(mqtt_server, 1883);
     initWiFi();
    
+    WebSerial.begin(&web_server);
+    WebSerial.msgCallback(recvMsg);
+    web_server.begin();
+
     if (!bme.begin(0x76)) {
         Serial.println("Could not find a valid BME280 sensor, check wiring!");
     }
@@ -244,7 +246,6 @@ void setup() {
         mcp.printSensorDetails();
     }
 }
-
 
 void loop() {
     digitalWrite(LED_BUILTIN, WiFi.status() == WL_CONNECTED);
@@ -269,6 +270,7 @@ void loop() {
                 getYLvalues();
 
                 print_values();
+                print_web_values();
                 
                 send_data_to_cloud_MQTT();
             
