@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ThingSpeak.h>
+#include <PubSubClient.h>
+#include <mqtt_secrets.h>
 
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
@@ -19,12 +21,19 @@ AsyncWebServer server(80);
 
 // #define wifi_ssid "Orange_Gosc_7AD0"
 // #define wifi_password "dupadupa"
-#define wifi_ssid "Orange_Swiatlowod_7AD0"
-#define wifi_password "7adkKdbCs7PHKp4ea3"
+// #define wifi_ssid "Orange_Swiatlowod_7AD0"
+// #define wifi_password "7adkKdbCs7PHKp4ea3"
 
-// #define wifi_ssid "zetor"
-// #define wifi_password "ursus360"
+#define wifi_ssid "zetor"
+#define wifi_password "ursus360"
 #define wifi_timeout 60000
+
+
+// PubSubClient MQTT_CLIENT;
+PubSubClient MQTT_client(wifi_client);
+const char* mqtt_server = "mqtt3.thingspeak.com";
+const char* publishTopic ="channels/2463135/publish"; 
+
 
 #define SEALEVELPRESSURE_HPA (1013.25)
 Adafruit_BME280 bme; // I2C
@@ -37,22 +46,23 @@ Adafruit_MCP9808  mcp;
 float mcp_temperature;
 
 const int yl_digital_pin = 16;
-const int yl_analog_pin = 4 ;
+const int yl_analog_pin = 4;
+float rain_analog;
+bool rain = false;
 
 unsigned long rain_last_impulse_millis = 0;
 unsigned long rain_interval = 900000;
 float mm_per_tick = 0.217;
 float rainfall_value = 0;
-bool rain = false;
 float rain_indicator = 0;
 int impulse_counter = 0;
 bool impulse = false;
 bool prev_impulse_val = false;
 
 
-unsigned long upload_previousMillis = 0;
-unsigned long upload_interval = 1500;
-String ip_address = "192.168.1.30";
+unsigned long last_upload_time = 0;
+unsigned long upload_interval = 15000;
+String ip_address = "192.168.10.201";
 float offset = 0.0;
 
 void initWiFi()
@@ -78,7 +88,6 @@ void initWiFi()
         ESP.restart();
     }
 }
-
 
 void print_values() {
     Serial.println();
@@ -144,14 +153,12 @@ void print_web_values() {
     // WebSerial.println(" mm/m^2");
 }
 
-
 void getBMEvalues() {
     bme_temperature = bme.readTemperature();
     bme_pressure = bme.readPressure() / 100.0F;
     bme_altitude = bme.readAltitude(SEALEVELPRESSURE_HPA);
     bme_humidity = bme.readHumidity();
 }
-
 
 void getMCPvalues()
 {
@@ -160,6 +167,11 @@ void getMCPvalues()
     // mcp.shutdown_wake(1);
 }
 
+void getYLvalues(){
+    // rain = digitalRead(yl_digital_pin);
+    rain_analog = analogRead(yl_analog_pin);
+    rain_analog < 2200 ? rain = true : rain = false; 
+}
 
 void rainMeter()
 {
@@ -191,7 +203,6 @@ void rainMeter()
     }
 }
 
-
 void recvMsg(uint8_t *data, size_t len){
     WebSerial.println("Received Data...");
     String d = "";
@@ -214,7 +225,27 @@ void recvMsg(uint8_t *data, size_t len){
     }
 }
 
-void send_data_to_cloud()
+void MQTTreconnect() {
+  // Loop until we're reconnected
+  while (!MQTT_client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+      //client.connect("cliend ID", "username","password") Replace with your Thingspeak MQTT Device Credentials
+    if (MQTT_client.connect(SECRET_MQTT_USERNAME, SECRET_MQTT_CLIENT_ID, SECRET_MQTT_PASSWORD)) {  
+      Serial.println("connected");
+    //   MQTT_client.subscribe(subscribeTopicFor_Command_1);   // subscribe the topics here
+      //client.subscribe(command2_topic);   
+      
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(MQTT_client.state());
+      Serial.println(" try again in 5 seconds");   // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+
+void send_data_to_cloud_https()
 {
     ThingSpeak.setField(1, mcp_temperature);
     ThingSpeak.setField(2, bme_pressure);
@@ -226,11 +257,29 @@ void send_data_to_cloud()
     Serial.println("SENT DATA TO CLOUD");
 }
 
+void send_data_to_cloud_MQTT()
+{
+    String dataText = String("field1=" + String(mcp_temperature) +
+                            "&field2=" + String(bme_pressure) +
+                            "&field3=" + String(bme_humidity) +
+                            "&field4=" + String(rain) +
+                            "&status=MQTTPUBLISH");
+
+    
+    if (MQTT_client.publish(publishTopic, dataText.c_str()))
+        Serial.println("Message published ["+String(publishTopic)+"]: " + dataText);
+    else Serial.println("Error publishing");
+}
+
+
+
+
+
 void setup() {
     Serial.begin(115200);
     pinMode(LED_BUILTIN, OUTPUT);
-    
-    // initWiFi();
+    MQTT_client.setServer(mqtt_server, 1883);
+    initWiFi();
 
     // ThingSpeak.begin(wifi_client);
 
@@ -260,27 +309,37 @@ void setup() {
 void loop() {
     digitalWrite(LED_BUILTIN, WiFi.status() == WL_CONNECTED);
     
-    // if(WiFi.localIP().toString() == "0.0.0.0") {
-    //     digitalWrite(LED_BUILTIN, LOW);
-    //     Serial.println("Connection lost...");
-    //     ESP.restart();
-    // }
-    
-    // if(WiFi.localIP().toString() == ip_address) {
+    if(WiFi.localIP().toString() == "0.0.0.0") {
+        digitalWrite(LED_BUILTIN, LOW);
+        Serial.println("Connection lost...");
+        ESP.restart();
+    }
+
+
+    if(WiFi.localIP().toString() == ip_address) {
         digitalWrite(LED_BUILTIN, HIGH);
-        
-        unsigned long upload_current_millis = millis();
+    
+        if(!MQTT_client.connected()) MQTTreconnect();    
+        MQTT_client.loop(); 
+
 
         // rainMeter();
         // delay(10);
 
-        if(millis() - upload_previousMillis > upload_interval)
+        if(millis() - last_upload_time > upload_interval)
         {
-            getBMEvalues();
-            getMCPvalues();
+            // getBMEvalues();
+            // getMCPvalues();
+            // mcp_temperature = random(100);
+            // bme_humidity = random(100);
+            // bme_pressure = random(100);
+            rain = !rain;
+
             print_values();
             // print_web_values();
-            // send_data_to_cloud();
+            // send_data_to_cloud_https();
+            send_data_to_cloud_MQTT();
+
             Serial.print("rain digital: ");
             Serial.println(digitalRead(yl_digital_pin));
             Serial.print("rain analog: ");
@@ -288,8 +347,8 @@ void loop() {
             Serial.println();
             Serial.println();
             Serial.println();
-            upload_previousMillis = millis();
+            last_upload_time = millis();
         }
-    // }
+    }
 }
 
